@@ -27,7 +27,7 @@ jobs:
 
       - name: Executar script generate_ics.py
         env:
-          BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
         run: python generate_ics.py
 
       - name: Commit e publicar calendar.ics

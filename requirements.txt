@@ -1,6 +1,6 @@
+snscrape
 requests
-ics
-pytz
 pillow
 pytesseract
-beautifulsoup4
+ics
+pytz

@@ -3,43 +3,43 @@ name: Atualizar Calendar ICS
 on:
   schedule:
     - cron: '0 0,12 * * *'  # 00:00 e 12:00 UTC
-  workflow_dispatch:       # Permite rodar manualmente
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout do repositório
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v3
+      with:
+        persist-credentials: false  # vamos usar token manualmente
 
-      - name: Configurar Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
+    - name: Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
 
-      - name: Instalar dependências
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests ics pillow pytesseract pytz
+    - name: Instalar dependências
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tesseract-ocr tesseract-ocr-por
+        python -m pip install --upgrade pip
+        pip install requests pytz pillow pytesseract ics
 
-      - name: Instalar Tesseract
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y tesseract-ocr tesseract-ocr-por
+    - name: Rodar generate_ics.py
+      env:
+        X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+      run: |
+        python generate_ics.py
 
-      - name: Rodar script Python
-        env:
-          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
-        run: |
-          python generate_ics.py
-
-      - name: Commit e push do ICS atualizado
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "github-actions@github.com"
-          git add calendar.ics last_tweet.json
-          git commit -m "Atualizar ICS - $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "Sem mudanças"
-          git push
+    - name: Commit e push do ICS atualizado
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config --global user.name "github-actions"
+        git config --global user.email "github-actions@github.com"
+        git add calendar.ics last_tweet.json || echo "Sem arquivos novos"
+        git commit -m "Atualizar ICS - $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "Sem mudanças"
+        git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
+        git push origin main

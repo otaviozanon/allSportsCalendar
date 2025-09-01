@@ -1,8 +1,8 @@
-name: Atualizar calendário HLTV/X
+name: Atualizar calendário X
 
 on:
   schedule:
-    - cron: '0 0,12 * * *'  # 00:00 e 12:00 UTC
+    - cron: '0 0,12 * * *'  # Todo dia 00:00 e 12:00 UTC
   workflow_dispatch:
 
 permissions:

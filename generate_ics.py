@@ -9,6 +9,8 @@ import warnings
 from PIL import Image
 import pytesseract
 import json
+import time
+import random
 
 warnings.filterwarnings(
     "ignore", category=FutureWarning, message=r"Behaviour of str\(Component\) will change in version 0.9.*"
@@ -18,6 +20,7 @@ warnings.filterwarnings(
 X_USER_ID = "1112832962486329344"  # EsportesNaTV
 BR_TZ = pytz.timezone('America/Sao_Paulo')
 MAX_AGE_DAYS = 30
+LAST_TWEET_FILE = "last_tweet.json"
 
 # Mapear palavras-chave OCR para esportes padronizados
 SPORT_KEYWORDS = {
@@ -45,22 +48,55 @@ SPORT_KEYWORDS = {
 def remove_emojis(text: str) -> str:
     return re.sub(r'[^\x00-\x7F]+', '', text)
 
-def get_last_image_url(user_id: str):
+def save_last_tweet_id(tweet_id: str):
+    with open(LAST_TWEET_FILE, "w") as f:
+        json.dump({"last_id": tweet_id}, f)
+
+def load_last_tweet_id():
+    if os.path.exists(LAST_TWEET_FILE):
+        with open(LAST_TWEET_FILE, "r") as f:
+            try:
+                data = json.load(f)
+                return data.get("last_id")
+            except:
+                return None
+    return None
+
+def get_last_image_url(user_id: str, retries=5):
     bearer = os.environ.get("X_BEARER_TOKEN")
     if not bearer:
         raise Exception("X_BEARER_TOKEN não configurado")
-
     headers = {"Authorization": f"Bearer {bearer}"}
     url = f"https://api.twitter.com/2/users/{user_id}/tweets?max_results=5&expansions=attachments.media_keys&media.fields=url,type"
-    resp = requests.get(url, headers=headers)
-    resp.raise_for_status()
-    data = resp.json()
-    for tweet in data.get("data", []):
-        media_keys = tweet.get("attachments", {}).get("media_keys", [])
-        for key in media_keys:
-            for m in data.get("includes", {}).get("media", []):
-                if m["media_key"] == key and m["type"] == "photo":
-                    return m["url"]
+
+    for attempt in range(retries):
+        resp = requests.get(url, headers=headers)
+        if resp.status_code == 429:
+            wait = 10 + random.randint(0, 10)
+            print(f"⚠️ 429 Too Many Requests. Tentando novamente em {wait}s...")
+            time.sleep(wait)
+            continue
+        resp.raise_for_status()
+        data = resp.json()
+        last_id = load_last_tweet_id()
+        for tweet in data.get("data", []):
+            if tweet["id"] == last_id:
+                continue  # já processado
+            media_keys = tweet.get("attachments", {}).get("media_keys", [])
+            for key in media_keys:
+                for m in data.get("includes", {}).get("media", []):
+                    if m["media_key"] == key and m["type"] == "photo":
+                        save_last_tweet_id(tweet["id"])
+                        return m["url"]
+        # Se nenhum novo, pega o mais recente
+        if data.get("data"):
+            tweet = data["data"][0]
+            media_keys = tweet.get("attachments", {}).get("media_keys", [])
+            for key in media_keys:
+                for m in data.get("includes", {}).get("media", []):
+                    if m["media_key"] == key and m["type"] == "photo":
+                        save_last_tweet_id(tweet["id"])
+                        return m["url"]
     raise Exception("Não foi possível encontrar a URL da imagem")
 
 def extract_sports(text: str):
@@ -84,7 +120,9 @@ if os.path.exists("calendar.ics"):
         content = f.read()
         if content.strip():
             try:
-                my_calendar.events.update(Calendar(content).events)
+                calendars = Calendar.parse_multiple(content)
+                for cal in calendars:
+                    my_calendar.events.update(cal.events)
                 print("🔹 calendar.ics antigo carregado (mantendo eventos anteriores).")
             except Exception as e:
                 print(f"⚠️ Não foi possível carregar o calendário antigo: {e}")
@@ -111,7 +149,6 @@ sports = extract_sports(texto)
 # --- Adicionar eventos ---
 added_count = 0
 for sport in sports:
-    # Evita duplicação pelo UID
     if not any(ev.uid == sport for ev in my_calendar.events):
         ev = Event()
         ev.name = sport

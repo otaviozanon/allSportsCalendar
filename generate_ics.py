@@ -1,18 +1,16 @@
 import os
 import re
-import requests
-from ics import Calendar, Event
 from datetime import datetime, timezone, timedelta
 import pytz
+import requests
 from PIL import Image
 from io import BytesIO
 import pytesseract
-from bs4 import BeautifulSoup
+from ics import Calendar, Event
+import snscrape.modules.twitter as sntwitter
 
 # ----------------- CONFIG -----------------
-X_USER = "EsportesNaTV"  # Conta do X
-POST_URL = f"https://x.com/{X_USER}"  # Página do usuário
-
+X_USER = "EsportesNaTV"
 ESPORTES = ["futebol", "tenis", "surf", "futsal", "volei"]
 BR_TZ = pytz.timezone('America/Sao_Paulo')
 MAX_AGE_DAYS = 30
@@ -22,16 +20,14 @@ CALENDAR_FILE = "calendar.ics"
 def remove_emojis(text: str) -> str:
     return re.sub(r'[^\x00-\x7F]+', '', text)
 
-def get_last_image_url(user_url: str) -> str:
-    """Busca a URL da última imagem do X usando meta property og:image"""
-    resp = requests.get(user_url)
-    if resp.status_code != 200:
-        raise Exception(f"Erro ao acessar {user_url}: {resp.status_code}")
-    soup = BeautifulSoup(resp.text, "html.parser")
-    meta_img = soup.find("meta", property="og:image")
-    if meta_img:
-        return meta_img["content"]
-    raise Exception("Não foi possível encontrar a URL da imagem")
+def get_last_image_url(user: str) -> str:
+    """Pega a URL da última imagem postada pelo usuário usando snscrape"""
+    for i, tweet in enumerate(sntwitter.TwitterUserScraper(user).get_items()):
+        if tweet.media:
+            for m in tweet.media:
+                if hasattr(m, "fullUrl"):
+                    return m.fullUrl
+    raise Exception("Não foi possível encontrar a última imagem")
 
 # ----------------- CARREGAR CALENDÁRIO EXISTENTE -----------------
 my_calendar = Calendar()
@@ -50,7 +46,7 @@ my_calendar.events = {ev for ev in my_calendar.events if ev.begin and ev.begin >
 
 # ----------------- PEGAR IMAGEM DO ÚLTIMO POST -----------------
 print(f"🔹 Pegando última imagem de {X_USER}")
-img_url = get_last_image_url(POST_URL)
+img_url = get_last_image_url(X_USER)
 print(f"🔹 URL da imagem: {img_url}")
 
 response = requests.get(img_url)

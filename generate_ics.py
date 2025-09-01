@@ -18,7 +18,7 @@ warnings.filterwarnings(
 )
 
 # --- Configurações ---
-BRAZILIAN_TEAMS = ["FURIA", "paiN", "MIBR", "Imperial", "Fluxo", "O PLANO", "Sharks", "RED Canids"]
+ESPORTES = ["futebol", "tenis", "surf", "futsal", "volei"]
 BR_TZ = pytz.timezone('America/Sao_Paulo')
 MAX_AGE_DAYS = 30
 
@@ -33,7 +33,7 @@ def get_last_image_url(user_id: str):
     headers = {"Authorization": f"Bearer {X_BEARER_TOKEN}"}
     url = f"https://api.twitter.com/2/users/{user_id}/tweets"
     params = {
-        "max_results": 5,  # pega até 5 tweets para garantir achar imagem
+        "max_results": 5,
         "expansions": "attachments.media_keys",
         "media.fields": "url,type"
     }
@@ -58,13 +58,12 @@ def get_last_image_url(user_id: str):
         break
     raise Exception("Não foi possível encontrar a URL da imagem")
 
-# --- Agora / corte de eventos antigos ---
+# --- Carregar/limpar calendário ---
 now_utc = datetime.now(timezone.utc)
 cutoff_time = now_utc - timedelta(days=MAX_AGE_DAYS)
 print(f"🕒 Agora (UTC): {now_utc}")
 print(f"🗑️ Jogos anteriores a {cutoff_time} serão removidos.")
 
-# --- Baixar ou criar calendar ---
 my_calendar = Calendar()
 if os.path.exists("calendar.ics"):
     with open("calendar.ics", "r", encoding="utf-8") as f:
@@ -77,12 +76,11 @@ if os.path.exists("calendar.ics"):
         except Exception as e:
             print(f"⚠️ Não foi possível carregar o calendário antigo: {e}")
 
-# --- Limpar eventos antigos ---
 old_count = len(my_calendar.events)
 my_calendar.events = {ev for ev in my_calendar.events if ev.begin and ev.begin > cutoff_time}
 print(f"🧹 Removidos {old_count - len(my_calendar.events)} eventos antigos.")
 
-# --- Baixar última imagem ---
+# --- Baixar última imagem do X ---
 print(f"🔹 Pegando última imagem de EsportesNaTV")
 img_url = get_last_image_url(X_USER_ID)
 print(f"🔹 URL da imagem: {img_url}")
@@ -95,10 +93,9 @@ img = Image.open(BytesIO(response.content))
 texto = pytesseract.image_to_string(img, lang='por')
 texto_clean = remove_emojis(texto).lower()
 
-# --- Separar esportes ---
-esportes = ["futebol", "tenis", "surf", "futsal", "volei"]
+# --- Criar eventos por esporte ---
 added_count = 0
-for esporte in esportes:
+for esporte in ESPORTES:
     if esporte in texto_clean:
         event = Event()
         event.name = esporte.capitalize()
@@ -109,7 +106,7 @@ for esporte in esportes:
 
 print(f"📌 {added_count} novos eventos adicionados.")
 
-# --- Salvar calendar ---
+# --- Salvar calendário atualizado ---
 with open("calendar.ics", "w", encoding="utf-8") as f:
     for line in my_calendar.serialize_iter():
         f.write(remove_emojis(line) + "\n")

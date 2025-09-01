@@ -1,4 +1,3 @@
-snscrape
 requests
 pillow
 pytesseract

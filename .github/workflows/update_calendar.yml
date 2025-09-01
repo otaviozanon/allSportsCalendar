@@ -2,7 +2,7 @@ name: Atualizar calendário X
 
 on:
   schedule:
-    - cron: '0 0,12 * * *'  # Todo dia 00:00 e 12:00 UTC
+    - cron: '0 0,12 * * *'
   workflow_dispatch:
 
 permissions:
@@ -12,22 +12,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1️⃣ Checkout do repositório
       - name: Checkout código
         uses: actions/checkout@v4
 
-      # 2️⃣ Build e rodar container Docker
-      - name: Build e rodar container
+      - name: Instalar dependências
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-por libtesseract-dev
+          python -m pip install --upgrade pip
+          pip install ics requests pytz pillow pytesseract
+
+      - name: Rodar script generate_ics.py
         env:
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
-        run: |
-          docker build -t all-sports-calendar .
-          docker run --rm \
-            -e X_BEARER_TOKEN="${X_BEARER_TOKEN}" \
-            all-sports-calendar
+        run: python generate_ics.py
 
-      # 3️⃣ Commit automático se houver mudanças
-      - name: Commit e publicar calendar.ics
+      - name: Commit e push calendar.ics
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"

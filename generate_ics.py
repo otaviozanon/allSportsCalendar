@@ -1,131 +1,144 @@
 import os
 import requests
 from ics import Calendar, Event
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 import pytz
-import json
 import re
-import time
-import random
-from PIL import Image
 from io import BytesIO
+from PIL import Image
 import pytesseract
 
 # --- Configurações ---
-X_BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN")
-X_USER_ID = "1112832962486329344"  # EsportesNaTV
+X_USER = "EsportesNaTV"
 BR_TZ = pytz.timezone("America/Sao_Paulo")
 MAX_AGE_DAYS = 30
-LAST_TWEET_FILE = "last_tweet.json"
 
-# Map de esportes
-SPORTS_KEYWORDS = {
-    "Brasileirao": "Futebol",
-    "US Open": "Tênis",
-    "MLB": "Basebol",
-    "EuroBasket": "Basquete",
-    "Mundial de Vlei": "Vôlei",
-    "WTA": "Tênis",
-    "F1 Academy": "Corrida",
-    "Campeonato Japonês": "Futebol",
-    "Formula 1": "Corrida",
-    "Porsche Endurance": "Corrida",
-    "PremierLeague": "Futebol",
-    "Ciclismo": "Ciclismo",
-    "La Liga": "Futebol",
-    "Bundesliga": "Futebol",
-    "Moto GP": "Corrida",
-    "Serie A Italiana": "Futebol",
-    "Serie B Italiana": "Futebol"
+# --- Palavras-chave para esportes ---
+SPORT_KEYWORDS = {
+    # Futebol
+    "brasileirao": "Futebol",
+    "camp. japones": "Futebol",
+    "premierleague": "Futebol",
+    "la liga": "Futebol",
+    "bundesliga": "Futebol",
+    "serie a italiana": "Futebol",
+    "serie b italiana": "Futebol",
+
+    # Tênis
+    "us open (masc)": "Tênis Masculino",
+    "us open (fem)": "Tênis Feminino",
+    "wta": "Tênis",
+
+    # Beisebol
+    "mlb": "Beisebol",
+
+    # Basquete
+    "eurobasket": "Basquete",
+
+    # Vôlei
+    "mundial de vlei": "Vôlei",
+
+    # Surf e Futsal
+    "surf": "Surf",
+    "futsal": "Futsal",
+
+    # Corrida
+    "f1 academy": "Corrida",
+    "formula 1": "Corrida",
+    "porsche endurance": "Corrida",
+    "moto gp": "Corrida",
+
+    # Ciclismo
+    "ciclismo": "Ciclismo"
 }
 
+def identificar_esportes(texto: str) -> list:
+    texto_lower = texto.lower()
+    encontrados = []
+    for key, esporte in SPORT_KEYWORDS.items():
+        if key in texto_lower:
+            encontrados.append(esporte)
+    return list(set(encontrados))  # Remove duplicados
+
+# --- Helpers ---
 def remove_emojis(text: str) -> str:
     return re.sub(r"[^\x00-\x7F]+", "", text)
 
-# --- Carregar calendário antigo ---
+def get_last_image_url(user: str) -> str:
+    """
+    Busca a última imagem do usuário usando X/Twitter API v2
+    Precisa de X_BEARER_TOKEN no env
+    """
+    headers = {"Authorization": f"Bearer {os.environ['X_BEARER_TOKEN']}"}
+    # Pegando ID do usuário
+    resp_user = requests.get(f"https://api.twitter.com/2/users/by/username/{user}", headers=headers)
+    resp_user.raise_for_status()
+    user_id = resp_user.json()["data"]["id"]
+
+    # Pegando últimos tweets com mídia
+    resp = requests.get(
+        f"https://api.twitter.com/2/users/{user_id}/tweets",
+        headers=headers,
+        params={
+            "max_results": 5,
+            "expansions": "attachments.media_keys",
+            "media.fields": "url,type"
+        }
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if "includes" in data and "media" in data["includes"]:
+        for media in data["includes"]["media"]:
+            if media["type"] == "photo":
+                return media["url"]
+    raise Exception("Não foi possível encontrar a URL da imagem")
+
+# --- Carregar ou criar calendar.ics ---
 my_calendar = Calendar()
 if os.path.exists("calendar.ics"):
     with open("calendar.ics", "r", encoding="utf-8") as f:
         try:
-            calendars = Calendar.parse_multiple(f.read())
-            for cal in calendars:
+            cleaned_lines = [line for line in f.readlines() if not line.startswith(";")]
+            for cal in Calendar.parse_multiple("".join(cleaned_lines)):
                 my_calendar.events.update(cal.events)
         except Exception as e:
             print(f"⚠️ Não foi possível carregar o calendário antigo: {e}")
 
-# --- Remover eventos antigos ---
+# --- Limpar eventos antigos ---
 now_utc = datetime.now(timezone.utc)
 cutoff_time = now_utc - timedelta(days=MAX_AGE_DAYS)
 my_calendar.events = {ev for ev in my_calendar.events if ev.begin and ev.begin > cutoff_time}
 
-# --- Recuperar último tweet processado ---
-last_tweet_id = None
-if os.path.exists(LAST_TWEET_FILE):
-    with open(LAST_TWEET_FILE, "r") as f:
-        data = json.load(f)
-        last_tweet_id = data.get("last_tweet_id")
+# --- Baixar imagem e ler texto ---
+print(f"🔹 Pegando última imagem de {X_USER}")
+img_url = get_last_image_url(X_USER)
+print(f"🔹 URL da imagem: {img_url}")
+response = requests.get(img_url)
+response.raise_for_status()
+img = Image.open(BytesIO(response.content))
 
-# --- Função para pegar a última imagem ---
-def get_last_image_url(user_id, max_retries=5):
-    headers = {"Authorization": f"Bearer {X_BEARER_TOKEN}"}
-    url = f"https://api.twitter.com/2/users/{user_id}/tweets?max_results=5&expansions=attachments.media_keys&media.fields=url,type"
-    
-    for attempt in range(max_retries):
-        resp = requests.get(url, headers=headers)
-        if resp.status_code == 429:
-            wait = 10 + random.randint(0,10)
-            print(f"⚠️ 429 Too Many Requests. Tentando novamente em {wait}s...")
-            time.sleep(wait)
-            continue
-        resp.raise_for_status()
-        data = resp.json()
-        if "includes" in data and "media" in data["includes"]:
-            for media in data["includes"]["media"]:
-                if media.get("type") == "photo":
-                    tweet_id = data["data"][0]["id"]
-                    if last_tweet_id and tweet_id <= last_tweet_id:
-                        return None  # já processado
-                    return media["url"], tweet_id
-        raise Exception("Não foi possível encontrar a URL da imagem")
-    raise Exception("Falha após várias tentativas")
+texto = pytesseract.image_to_string(img, lang="por")
+texto = remove_emojis(texto)
+print(f"🔹 Texto extraído da imagem:\n{texto}")
 
-# --- Pegar a última imagem ---
-result = get_last_image_url(X_USER_ID)
-if result:
-    img_url, last_tweet_id_new = result
-    print(f"🔹 URL da imagem: {img_url}")
-    response = requests.get(img_url)
-    img = Image.open(BytesIO(response.content))
-    
-    # --- Extrair texto da imagem ---
-    texto = pytesseract.image_to_string(img, lang="por")
-    print(f"🔹 Texto extraído da imagem:\n{texto}")
-    
-    # --- Separar esportes ---
-    added_count = 0
-    for keyword, sport in SPORTS_KEYWORDS.items():
-        if re.search(keyword, texto, re.IGNORECASE):
-            # Evitar duplicados
-            if not any(ev.name == sport for ev in my_calendar.events):
-                ev = Event()
-                ev.name = sport
-                ev.begin = now_utc
-                ev.duration = timedelta(hours=2)
-                my_calendar.events.add(ev)
-                print(f"✅ Adicionado: {sport}")
-                added_count += 1
-    print(f"📌 {added_count} novos eventos adicionados.")
-    
-    # --- Atualizar último tweet processado ---
-    with open(LAST_TWEET_FILE, "w") as f:
-        json.dump({"last_tweet_id": last_tweet_id_new}, f)
-else:
-    print("⚠️ Nenhuma nova imagem encontrada.")
+# --- Identificar esportes ---
+esportes = identificar_esportes(texto)
+added_count = 0
+for esporte in esportes:
+    ev = Event()
+    ev.name = esporte
+    ev.begin = now_utc  # Pode ajustar se quiser hora do evento
+    ev.duration = timedelta(hours=2)
+    ev.uid = f"{ev.name}-{ev.begin.timestamp()}"
+    my_calendar.events.add(ev)
+    print(f"✅ Adicionado: {esporte}")
+    added_count += 1
+
+print(f"📌 {added_count} novos eventos adicionados.")
 
 # --- Salvar calendar.ics ---
 with open("calendar.ics", "w", encoding="utf-8") as f:
     for line in my_calendar.serialize_iter():
         f.write(remove_emojis(line) + "\n")
-    f.write(f"X-GENERATED-TIME:{now_utc.isoformat()}\n")
-
+    f.write(f"X-GENERATED-TIME:{datetime.now(timezone.utc).isoformat()}\n")
 print("🔹 calendar.ics atualizado!")

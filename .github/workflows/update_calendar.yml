@@ -13,23 +13,39 @@ jobs:
       - name: Checkout do repositório
         uses: actions/checkout@v4
 
+      # ----------------- CACHE DO PIP -----------------
+      - name: Cache pip
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: 3.11
 
-      - name: Instalar dependências Python e Tesseract
+      - name: Instalar dependências Python
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
+      # ----------------- INSTALAR TESSERACT (UMA VEZ) -----------------
+      - name: Instalar Tesseract e idioma português
+        if: runner.os == 'Linux'
+        run: |
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr tesseract-ocr-por libtesseract-dev
 
-      - name: Executar script generate_ics.py
+      # ----------------- EXECUTAR SCRIPT -----------------
+      - name: Executar generate_ics.py
         env:
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
         run: python generate_ics.py
 
+      # ----------------- COMMIT ICS -----------------
       - name: Commit e publicar calendar.ics
         run: |
           git config --global user.name "github-actions"

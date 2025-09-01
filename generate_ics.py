@@ -1,15 +1,15 @@
 import os
 import re
-from datetime import datetime, timezone, timedelta
-import pytz
 import requests
+from datetime import datetime, timezone, timedelta
 from PIL import Image
 from io import BytesIO
 import pytesseract
 from ics import Calendar, Event
-import snscrape.modules.twitter as sntwitter
+import pytz
 
 # ----------------- CONFIG -----------------
+BEARER_TOKEN = "SEU_TOKEN_AQUI"
 X_USER = "EsportesNaTV"
 ESPORTES = ["futebol", "tenis", "surf", "futsal", "volei"]
 BR_TZ = pytz.timezone('America/Sao_Paulo')
@@ -20,14 +20,27 @@ CALENDAR_FILE = "calendar.ics"
 def remove_emojis(text: str) -> str:
     return re.sub(r'[^\x00-\x7F]+', '', text)
 
-def get_last_image_url(user: str) -> str:
-    """Pega a URL da última imagem postada pelo usuário usando snscrape"""
-    for i, tweet in enumerate(sntwitter.TwitterUserScraper(user).get_items()):
-        if tweet.media:
-            for m in tweet.media:
-                if hasattr(m, "fullUrl"):
-                    return m.fullUrl
-    raise Exception("Não foi possível encontrar a última imagem")
+def get_user_id(username):
+    url = f"https://api.twitter.com/2/users/by/username/{username}"
+    headers = {"Authorization": f"Bearer {BEARER_TOKEN}"}
+    resp = requests.get(url, headers=headers).json()
+    return resp['data']['id']
+
+def get_last_image_url(user_id):
+    url = (
+        f"https://api.twitter.com/2/users/{user_id}/tweets"
+        "?tweet.fields=attachments,created_at"
+        "&expansions=attachments.media_keys"
+        "&media.fields=url"
+    )
+    headers = {"Authorization": f"Bearer {BEARER_TOKEN}"}
+    resp = requests.get(url, headers=headers).json()
+    
+    if 'includes' in resp and 'media' in resp['includes']:
+        for m in resp['includes']['media']:
+            if 'url' in m:
+                return m['url']
+    raise Exception("Não foi possível encontrar a URL da imagem")
 
 # ----------------- CARREGAR CALENDÁRIO EXISTENTE -----------------
 my_calendar = Calendar()
@@ -44,15 +57,13 @@ now_utc = datetime.now(timezone.utc)
 cutoff_time = now_utc - timedelta(days=MAX_AGE_DAYS)
 my_calendar.events = {ev for ev in my_calendar.events if ev.begin and ev.begin > cutoff_time}
 
-# ----------------- PEGAR IMAGEM DO ÚLTIMO POST -----------------
+# ----------------- PEGAR ÚLTIMA IMAGEM -----------------
 print(f"🔹 Pegando última imagem de {X_USER}")
-img_url = get_last_image_url(X_USER)
+user_id = get_user_id(X_USER)
+img_url = get_last_image_url(user_id)
 print(f"🔹 URL da imagem: {img_url}")
 
 response = requests.get(img_url)
-if response.status_code != 200:
-    raise Exception(f"Erro ao baixar imagem: {response.status_code}")
-
 img = Image.open(BytesIO(response.content))
 
 # ----------------- OCR -----------------

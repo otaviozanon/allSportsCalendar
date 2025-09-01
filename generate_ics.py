@@ -9,7 +9,10 @@ from ics import Calendar, Event
 import pytz
 
 # ----------------- CONFIG -----------------
-BEARER_TOKEN = "SEU_TOKEN_AQUI"
+BEARER_TOKEN = os.environ.get("X_BEARER_TOKEN")
+if not BEARER_TOKEN:
+    raise Exception("❌ X_BEARER_TOKEN não definido. Adicione como secret no GitHub Actions ou variável de ambiente local.")
+
 X_USER = "EsportesNaTV"
 ESPORTES = ["futebol", "tenis", "surf", "futsal", "volei"]
 BR_TZ = pytz.timezone('America/Sao_Paulo')

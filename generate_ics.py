@@ -7,7 +7,7 @@ import pytesseract
 import re
 
 # --- Configurações ---
-IMG_URL = "https://pbs.twimg.com/media/GzzG3I2XIAAioyI.png"
+IMG_URL = "https://pbs.twimg.com/media/GzzG3I2XIAAioyI.png"  # URL fixa para teste
 MAX_EVENT_DURATION_HOURS = 2
 
 # --- Baixar imagem ---
@@ -21,23 +21,39 @@ print(f"🔹 Texto extraído da imagem:\n{texto}")
 
 # --- Parsing da agenda ---
 events = []
+current_event = None
+
 for line in texto.splitlines():
     line = line.strip()
     if not line or len(line) < 5:
         continue
-    # Regex simplificada: pega hora e tudo que vem depois como título
-    m = re.match(r'(\d{2}h\d{2})\s+(.+)', line)
+
+    # Detecta linha que começa com hora
+    m = re.match(r'(\d{2}h\d{2})\s+(.*)', line)
     if m:
-        hora, titulo = m.groups()
-        # Ignorar títulos curtos / apenas símbolos ou números
-        if len(titulo.strip()) < 2 or re.fullmatch(r'[\d\|\(\)\?]', titulo.strip()):
-            continue
-        events.append({
+        hora, rest = m.groups()
+        # Se houver evento anterior, adiciona à lista
+        if current_event:
+            events.append(current_event)
+
+        # Cria novo evento
+        current_event = {
             "hora": hora,
-            "titulo": titulo.strip(),
-            "comentario": "",  # podemos preencher depois
-            "canal": ""        # podemos preencher depois
-        })
+            "titulo": rest.split('|')[0].strip(),  # título antes de |
+            "descricao": '',                        # será preenchido nas linhas seguintes
+            "canal": rest.split('|')[1].strip() if '|' in rest else ''
+        }
+    else:
+        # Linhas seguintes são descrições adicionais
+        if current_event:
+            if current_event["descricao"]:
+                current_event["descricao"] += " | " + line
+            else:
+                current_event["descricao"] = line
+
+# Adiciona último evento
+if current_event:
+    events.append(current_event)
 
 print("✅ Eventos parseados:")
 for ev in events:
@@ -45,12 +61,19 @@ for ev in events:
 
 # --- Criar calendário ---
 cal = Calendar()
-today_str = "2025-09-01"
+today_str = datetime.now().strftime('%Y-%m-%d')
+
 for ev in events:
+    # Ignora eventos com título vazio ou só símbolos
+    if not re.search(r'[A-Za-z0-9]', ev["titulo"]):
+        continue
+
     e = Event()
     e.name = ev["titulo"]
-    e.begin = f"{today_str} {ev['hora'].replace('h', ':')}"
-    e.description = ev["comentario"] + (" | " + ev["canal"] if ev["canal"] else "")
+    # Ajusta hora para formato ISO
+    hora_iso = ev["hora"].replace('h', ':')
+    e.begin = f"{today_str} {hora_iso}"
+    e.description = ev["descricao"] + (" | " + ev["canal"] if ev["canal"] else "")
     e.duration = timedelta(hours=MAX_EVENT_DURATION_HOURS)
     e.uid = ev["titulo"]
     cal.events.add(e)

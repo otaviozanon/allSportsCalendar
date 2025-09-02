@@ -1,13 +1,13 @@
 import requests
 from ics import Calendar, Event
 from io import BytesIO
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone, timedelta
 from PIL import Image
 import pytesseract
 import re
 
 # --- Configurações ---
-IMG_URL = "https://pbs.twimg.com/media/GzzG3I2XIAAioyI.png"  # Imagem fixa para teste
+IMG_URL = "https://pbs.twimg.com/media/GzzG3I2XIAAioyI.png"  # URL fixa para teste
 MAX_EVENT_DURATION_HOURS = 2
 
 # --- Baixar imagem ---
@@ -26,12 +26,12 @@ for line in texto.splitlines():
     if not line or len(line) < 5:
         continue
 
-    # Regex para capturar hora, título, comentário e canal
-    m = re.match(r'(\d{2}h\d{2})\s+(.*?)\s*(Jogos.*)?\s*(\S+)?', line, re.IGNORECASE)
+    # Regex para capturar: hora + título + comentário (opcional) + canal (opcional)
+    m = re.match(r'(\d{2}h\d{2})\s+([^\d\|][^\|]*?)(?:\s+(Jogos.*?))?(?:\s*\|\s*(\S+))?$', line)
     if m:
         hora, titulo, comentario, canal = m.groups()
-        # Ignorar títulos curtos/números/sozinhos
-        if len(titulo.strip()) <= 1 or re.match(r'^[\d\|\(\)\?]$', titulo.strip()):
+        # Ignorar títulos muito curtos ou caracteres sozinhos
+        if not titulo or len(titulo.strip()) <= 1:
             continue
         events.append({
             "hora": hora,
@@ -40,27 +40,30 @@ for line in texto.splitlines():
             "canal": canal.strip() if canal else ""
         })
 
+print("✅ Eventos parseados:")
+for ev in events:
+    print(ev)
+
 # --- Criar calendário ---
 cal = Calendar()
-today_str = datetime.now().strftime('%Y-%m-%d')
+# Tentar pegar a data correta da agenda (ex: "EIRA, 02/09/2025")
+data_match = re.search(r'(\d{2}/\d{2}/\d{4})', texto)
+if data_match:
+    today_str = datetime.strptime(data_match.group(1), "%d/%m/%Y").strftime("%Y-%m-%d")
+else:
+    today_str = datetime.now().strftime('%Y-%m-%d')
 
 for ev in events:
     e = Event()
     e.name = ev["titulo"]
-
-    # Corrige formato hora "06h00" -> "06:00"
-    hora_formatada = ev["hora"].replace("h", ":")
-    e.begin = f"{today_str} {hora_formatada}"
-
-    descricao = ev["comentario"]
-    if ev["canal"]:
-        descricao += f" | {ev['canal']}"
-    e.description = descricao
-
+    # Transformar hora 06h00 -> 06:00
+    hora_iso = ev["hora"].replace("h", ":")
+    e.begin = f"{today_str} {hora_iso}"
+    e.description = f"{ev['comentario']} | {ev['canal']}" if ev["comentario"] or ev["canal"] else ""
     e.duration = timedelta(hours=MAX_EVENT_DURATION_HOURS)
     e.uid = ev["titulo"]
     cal.events.add(e)
-    print(f"✅ Adicionado: {ev['titulo']} - {hora_formatada}")
+    print(f"✅ Adicionado: {ev['titulo']} - {ev['hora']}")
 
 # --- Salvar arquivo ---
 with open("calendar.ics", "w", encoding="utf-8") as f:

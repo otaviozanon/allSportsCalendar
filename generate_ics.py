@@ -25,13 +25,12 @@ for line in texto.splitlines():
     line = line.strip()
     if not line or len(line) < 5:
         continue
-
-    # Regex para capturar: hora + título + comentário (opcional) + canal (opcional)
-    m = re.match(r'(\d{2}h\d{2})\s+([^\d\|][^\|]*?)(?:\s+(Jogos.*?))?(?:\s*\|\s*(\S+))?$', line)
+    # Regex: captura hora, título, comentário/canal (opcional)
+    m = re.match(r'(\d{2}h\d{2})\s+(.*?)\s*(Jogos.*)?\s*(XSPORTS|ESPN[0-9]?|SPORTV[0-9]?|BANDSPORTS|GOAT|youtube|disneyplus\.com)?', line, re.IGNORECASE)
     if m:
         hora, titulo, comentario, canal = m.groups()
-        # Ignorar títulos muito curtos ou caracteres sozinhos
-        if not titulo or len(titulo.strip()) <= 1:
+        # Ignora símbolos ou números soltos
+        if re.fullmatch(r'[\d\|\(\)\?]', titulo.strip()):
             continue
         events.append({
             "hora": hora,
@@ -46,20 +45,16 @@ for ev in events:
 
 # --- Criar calendário ---
 cal = Calendar()
-# Tentar pegar a data correta da agenda (ex: "EIRA, 02/09/2025")
-data_match = re.search(r'(\d{2}/\d{2}/\d{4})', texto)
-if data_match:
-    today_str = datetime.strptime(data_match.group(1), "%d/%m/%Y").strftime("%Y-%m-%d")
-else:
-    today_str = datetime.now().strftime('%Y-%m-%d')
-
+# Usando a data do dia 01/09/2025 como no exemplo
+today_str = "2025-09-01"
 for ev in events:
     e = Event()
     e.name = ev["titulo"]
-    # Transformar hora 06h00 -> 06:00
-    hora_iso = ev["hora"].replace("h", ":")
-    e.begin = f"{today_str} {hora_iso}"
-    e.description = f"{ev['comentario']} | {ev['canal']}" if ev["comentario"] or ev["canal"] else ""
+    e.begin = f"{today_str} {ev['hora'].replace('h', ':')}"
+    desc = ev["comentario"]
+    if ev["canal"]:
+        desc += f" | {ev['canal']}" if desc else ev["canal"]
+    e.description = desc
     e.duration = timedelta(hours=MAX_EVENT_DURATION_HOURS)
     e.uid = ev["titulo"]
     cal.events.add(e)

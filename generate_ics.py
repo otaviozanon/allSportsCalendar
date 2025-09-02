@@ -7,7 +7,7 @@ import pytesseract
 import re
 
 # --- Configurações ---
-IMG_URL = "https://pbs.twimg.com/media/GzzG3I2XIAAioyI.png"  # URL fixa para teste
+IMG_URL = "https://pbs.twimg.com/media/GzzG3I2XIAAioyI.png"
 MAX_EVENT_DURATION_HOURS = 2
 
 # --- Baixar imagem ---
@@ -25,18 +25,18 @@ for line in texto.splitlines():
     line = line.strip()
     if not line or len(line) < 5:
         continue
-    # Regex: captura hora, título, comentário/canal (opcional)
-    m = re.match(r'(\d{2}h\d{2})\s+(.*?)\s*(Jogos.*)?\s*(XSPORTS|ESPN[0-9]?|SPORTV[0-9]?|BANDSPORTS|GOAT|youtube|disneyplus\.com)?', line, re.IGNORECASE)
+    # Regex simplificada: pega hora e tudo que vem depois como título
+    m = re.match(r'(\d{2}h\d{2})\s+(.+)', line)
     if m:
-        hora, titulo, comentario, canal = m.groups()
-        # Ignora símbolos ou números soltos
-        if re.fullmatch(r'[\d\|\(\)\?]', titulo.strip()):
+        hora, titulo = m.groups()
+        # Ignorar títulos curtos / apenas símbolos ou números
+        if len(titulo.strip()) < 2 or re.fullmatch(r'[\d\|\(\)\?]', titulo.strip()):
             continue
         events.append({
             "hora": hora,
             "titulo": titulo.strip(),
-            "comentario": comentario.strip() if comentario else "",
-            "canal": canal.strip() if canal else ""
+            "comentario": "",  # podemos preencher depois
+            "canal": ""        # podemos preencher depois
         })
 
 print("✅ Eventos parseados:")
@@ -45,16 +45,12 @@ for ev in events:
 
 # --- Criar calendário ---
 cal = Calendar()
-# Usando a data do dia 01/09/2025 como no exemplo
 today_str = "2025-09-01"
 for ev in events:
     e = Event()
     e.name = ev["titulo"]
     e.begin = f"{today_str} {ev['hora'].replace('h', ':')}"
-    desc = ev["comentario"]
-    if ev["canal"]:
-        desc += f" | {ev['canal']}" if desc else ev["canal"]
-    e.description = desc
+    e.description = ev["comentario"] + (" | " + ev["canal"] if ev["canal"] else "")
     e.duration = timedelta(hours=MAX_EVENT_DURATION_HOURS)
     e.uid = ev["titulo"]
     cal.events.add(e)

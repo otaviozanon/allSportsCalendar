@@ -1,4 +1,4 @@
-name: Teste calendário esportes
+name: Atualizar calendário esportes
 
 on:
   schedule:
@@ -10,7 +10,7 @@ permissions:
   id-token: write
 
 jobs:
-  test:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -38,8 +38,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr tesseract-ocr-por
 
-      # 🔹 Executar script de teste
-      - name: Executar script
+      # 🔹 Configurar Bearer Token como variável de ambiente
+      - name: Configurar Token
+        run: echo "X_BEARER_TOKEN=${{ secrets.X_BEARER_TOKEN }}" >> $GITHUB_ENV
+
+      # 🔹 Executar script Python
+      - name: Executar script generate_ics.py
         run: python generate_ics.py
 
       # 🔹 Commit e push do calendar.ics
@@ -48,5 +52,5 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
           git add calendar.ics
-          git commit -m "Teste ICS - $(date -u +"%Y-%m-%dT%H:%M:%SZ")" || echo "Sem mudanças para commitar"
+          git commit -m "Atualizar ICS - $(date -u +"%Y-%m-%dT%H:%M:%SZ")" || echo "Sem mudanças para commitar"
           git push

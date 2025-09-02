@@ -2,11 +2,16 @@ import os
 import requests
 from ics import Calendar, Event
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 import pytz
 import re
 from PIL import Image
 import pytesseract
+import warnings
+
+warnings.filterwarnings(
+    "ignore", category=FutureWarning, message=r"Behaviour of str\(Component\) will change in version 0.9.*"
+)
 
 # --- Configurações ---
 X_USER_ID = "1112832962486329344"  # EsportesNaTV
@@ -14,6 +19,9 @@ BR_TZ = pytz.timezone('America/Sao_Paulo')
 MAX_AGE_DAYS = 30
 
 # --- Funções ---
+def remove_emojis(text: str) -> str:
+    return re.sub(r'[^\x00-\x7F]+', '', text)
+
 def get_last_image_url(user_id: str):
     bearer = os.environ.get("X_BEARER_TOKEN")
     if not bearer:
@@ -32,32 +40,23 @@ def get_last_image_url(user_id: str):
                     return m["url"]
     raise Exception("Não foi possível encontrar a URL da imagem")
 
-def parse_events(text: str):
-    """
-    Extrai eventos do OCR:
-    Formato esperado na imagem:
-    06h00 | WTA125 Montreux | Jogos de 1º Rodada | XSPORTS
-    """
-    events = []
-    for line in text.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-
-        # Regex para extrair hora, título, comentário/canal
-        match = re.match(r"(\d{2}h\d{2})\s*[|]\s*(.+?)\s*[|]\s*(.+?)(?:\s*[|]\s*(.+))?$", line)
-        if match:
-            hora, titulo, comentario, canal = match.groups()
-            events.append({
-                "hora": hora,
-                "titulo": titulo.strip(),
-                "comentario": comentario.strip(),
-                "canal": canal.strip() if canal else ""
-            })
-    return events
+def parse_event_line(line: str):
+    """Extrai hora, título, comentário e canal da linha"""
+    line = line.strip()
+    # Separar pelo pipe ou espaços múltiplos
+    parts = [p.strip() for p in re.split(r'\s+\|\s+|\s{2,}', line) if p.strip()]
+    if len(parts) >= 2:
+        hour = parts[0]
+        title = parts[1]
+        comment = parts[2] if len(parts) >= 3 else ""
+        channel = parts[3] if len(parts) >= 4 else ""
+        if channel:
+            comment = f"{comment} | {channel}" if comment else channel
+        return hour, title, comment
+    return None, None, None
 
 # --- Data e horário ---
-now_utc = datetime.now(pytz.utc)
+now_utc = datetime.now(timezone.utc)
 cutoff_time = now_utc - timedelta(days=MAX_AGE_DAYS)
 print(f"🕒 Agora (UTC): {now_utc}")
 print(f"🗑️ Jogos anteriores a {cutoff_time} serão removidos.")
@@ -70,7 +69,7 @@ if os.path.exists("calendar.ics"):
         if content.strip():
             try:
                 my_calendar.events.update(Calendar(content).events)
-                print("🔹 calendar.ics antigo carregado.")
+                print("🔹 calendar.ics antigo carregado (mantendo eventos anteriores).")
             except Exception as e:
                 print(f"⚠️ Não foi possível carregar o calendário antigo: {e}")
 
@@ -90,38 +89,42 @@ img = Image.open(BytesIO(response.content))
 texto = pytesseract.image_to_string(img, lang='por')
 print(f"🔹 Texto extraído da imagem:\n{texto}")
 
-# --- Parsear eventos ---
-parsed_events = parse_events(texto)
-
-# --- Adicionar eventos ao calendário ---
+# --- Extrair eventos ---
 added_count = 0
-for ev_info in parsed_events:
-    # Converter hora Brasil -> UTC
-    today = datetime.now(BR_TZ).date()
-    hour, minute = map(int, ev_info["hora"].replace("h", ":").split(":"))
-    dt_local = BR_TZ.localize(datetime(today.year, today.month, today.day, hour, minute))
-    dt_utc = dt_local.astimezone(pytz.utc)
+for line in texto.splitlines():
+    hour_str, title, comment = parse_event_line(line)
+    if not hour_str or not title:
+        continue
 
-    uid = f"{ev_info['titulo'].replace(' ','-')}-{dt_local.strftime('%Y%m%dT%H%M')}"
-    if any(ev.uid == uid for ev in my_calendar.events):
-        continue  # Evitar duplicação
-
-    ev = Event()
-    ev.begin = dt_utc
-    ev.duration = timedelta(hours=2)
-    ev.name = ev_info["titulo"]
-    ev.description = f"{ev_info['comentario']}" + (f" - Canal: {ev_info['canal']}" if ev_info['canal'] else "")
-    ev.uid = uid
-    my_calendar.events.add(ev)
-    print(f"✅ Adicionado: {ev.name} às {ev_info['hora']}")
-    added_count += 1
+    # Criar evento
+    try:
+        ev = Event()
+        # Substitui possíveis ":" ou "." por "h" para evitar erro
+        hour_str = hour_str.replace(":", "h").replace(".", "h")
+        ev_time = datetime.strptime(hour_str, "%Hh%M").replace(
+            year=now_utc.year, month=now_utc.month, day=now_utc.day,
+            tzinfo=BR_TZ
+        )
+        ev.name = title
+        ev.begin = ev_time
+        ev.duration = timedelta(hours=2)
+        ev.description = comment
+        ev.uid = f"{title}-{hour_str}"
+        
+        # Evita duplicação
+        if not any(e.uid == ev.uid for e in my_calendar.events):
+            my_calendar.events.add(ev)
+            print(f"✅ Adicionado: {title}")
+            added_count += 1
+    except Exception as e:
+        print(f"⚠️ Erro ao processar linha: {line} | {e}")
 
 print(f"📌 {added_count} novos eventos adicionados.")
 
-# --- Salvar ICS ---
+# --- Salvar calendar.ics ---
 with open("calendar.ics", "w", encoding="utf-8") as f:
     for line in my_calendar.serialize_iter():
-        f.write(line + "\n")
-    f.write(f"X-GENERATED-TIME:{datetime.now(pytz.utc).isoformat()}\n")
+        f.write(remove_emojis(line) + "\n")
+    f.write(f"X-GENERATED-TIME:{datetime.now(timezone.utc).isoformat()}\n")
 
 print("🔹 calendar.ics atualizado!")

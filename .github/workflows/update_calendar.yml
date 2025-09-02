@@ -39,8 +39,8 @@ jobs:
           sudo apt-get install -y tesseract-ocr tesseract-ocr-por
 
       # 🔹 Executar script de teste
-      - name: Executar script generate_ics_teste.py
-        run: python generate_ics_teste.py
+      - name: Executar script
+        run: python generate_ics.py
 
       # 🔹 Commit e push do calendar.ics
       - name: Commit e push calendar.ics

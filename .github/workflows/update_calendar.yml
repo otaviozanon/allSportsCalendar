@@ -1,45 +1,52 @@
-name: Atualizar Calendar ICS
+name: Teste calendário esportes
 
 on:
   schedule:
-    - cron: '0 0,12 * * *'  # 00:00 e 12:00 UTC
-  workflow_dispatch:
+    - cron: '0 0,12 * * *'  # Todos os dias às 00h00 e 12h00 UTC
+  workflow_dispatch:  # Permite execução manual
+
+permissions:
+  contents: write  # Para poder commitar o calendar.ics
+  id-token: write
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-      with:
-        persist-credentials: false  # vamos usar token manualmente
+      # 🔹 Checkout do repositório
+      - name: Checkout código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Configurar Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: 3.11
+      # 🔹 Configurar Python 3.11
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
 
-    - name: Instalar dependências
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y tesseract-ocr tesseract-ocr-por
-        python -m pip install --upgrade pip
-        pip install requests pytz pillow pytesseract ics
+      # 🔹 Instalar dependências Python
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests ics pytz pillow pytesseract
 
-    - name: Rodar generate_ics.py
-      env:
-        X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
-      run: |
-        python generate_ics.py
+      # 🔹 Instalar Tesseract OCR no Ubuntu
+      - name: Instalar Tesseract
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-por
 
-    - name: Commit e push do ICS atualizado
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        git config --global user.name "github-actions"
-        git config --global user.email "github-actions@github.com"
-        git add calendar.ics last_tweet.json || echo "Sem arquivos novos"
-        git commit -m "Atualizar ICS - $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "Sem mudanças"
-        git remote set-url origin https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git
-        git push origin main
+      # 🔹 Executar script de teste
+      - name: Executar script generate_ics_teste.py
+        run: python generate_ics_teste.py
+
+      # 🔹 Commit e push do calendar.ics
+      - name: Commit e push calendar.ics
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add calendar.ics
+          git commit -m "Teste ICS - $(date -u +"%Y-%m-%dT%H:%M:%SZ")" || echo "Sem mudanças para commitar"
+          git push

@@ -42,7 +42,8 @@ today_str = datetime.now().strftime('%Y-%m-%d')
 for ev in events:
     e = Event()
     e.name = ev["titulo"]
-    e.begin = f"{today_str} {ev['hora']}"
+    hora_iso = ev["hora"].replace("h", ":")  # Corrige formato "06h00" -> "06:00"
+    e.begin = f"{today_str} {hora_iso}"
     e.description = f"{ev['comentario']} | {ev['canal']}"
     e.duration = timedelta(hours=MAX_EVENT_DURATION_HOURS)
     e.uid = ev["titulo"]

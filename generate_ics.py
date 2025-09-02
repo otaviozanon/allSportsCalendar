@@ -1,7 +1,7 @@
 import requests
 from ics import Calendar, Event
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 from PIL import Image
 import pytesseract
 import re
@@ -26,38 +26,40 @@ for line in texto.splitlines():
     if not line or len(line) < 5:
         continue
 
-    # Regex para capturar: hora | título | comentário | canal
-    m = re.match(r'(\d{2}h\d{2})\s+(.*)', line)
-    if not m:
-        continue
+    # Regex para capturar: hora + título + comentário (opcional) + canal (opcional)
+    m = re.match(r'(\d{2}h\d{2})\s+([^\d\|][^\|]*?)(?:\s+(Jogos.*?))?(?:\s*\|\s*(\S+))?$', line)
+    if m:
+        hora, titulo, comentario, canal = m.groups()
+        # Ignorar títulos muito curtos ou caracteres sozinhos
+        if not titulo or len(titulo.strip()) <= 1:
+            continue
+        events.append({
+            "hora": hora,
+            "titulo": titulo.strip(),
+            "comentario": comentario.strip() if comentario else "",
+            "canal": canal.strip() if canal else ""
+        })
 
-    hora, resto = m.groups()
-
-    # Ignorar linhas que começam com símbolo estranho ou números isolados
-    if resto.startswith('|') or re.match(r'^\d+$', resto.strip().split()[0]):
-        continue
-
-    # Separar título, comentário e canal se houver '|'
-    partes = resto.split('|')
-    titulo = partes[0].strip()
-    descricao = " | ".join(p.strip() for p in partes[1:]).strip() if len(partes) > 1 else ""
-    canal = ""  # Podemos preencher se houver lista específica de canais
-
-    events.append({
-        "hora": hora,
-        "titulo": titulo,
-        "descricao": descricao,
-        "canal": canal
-    })
+print("✅ Eventos parseados:")
+for ev in events:
+    print(ev)
 
 # --- Criar calendário ---
 cal = Calendar()
-today_str = datetime.now().strftime('%Y-%m-%d')
+# Tentar pegar a data correta da agenda (ex: "EIRA, 02/09/2025")
+data_match = re.search(r'(\d{2}/\d{2}/\d{4})', texto)
+if data_match:
+    today_str = datetime.strptime(data_match.group(1), "%d/%m/%Y").strftime("%Y-%m-%d")
+else:
+    today_str = datetime.now().strftime('%Y-%m-%d')
+
 for ev in events:
     e = Event()
     e.name = ev["titulo"]
-    e.begin = datetime.strptime(f"{today_str} {ev['hora']}", "%Y-%m-%d %Hh%M")
-    e.description = f"{ev['descricao']} | {ev['canal']}" if ev['canal'] else ev['descricao']
+    # Transformar hora 06h00 -> 06:00
+    hora_iso = ev["hora"].replace("h", ":")
+    e.begin = f"{today_str} {hora_iso}"
+    e.description = f"{ev['comentario']} | {ev['canal']}" if ev["comentario"] or ev["canal"] else ""
     e.duration = timedelta(hours=MAX_EVENT_DURATION_HOURS)
     e.uid = ev["titulo"]
     cal.events.add(e)
@@ -67,6 +69,6 @@ for ev in events:
 with open("calendar.ics", "w", encoding="utf-8") as f:
     for line in cal.serialize_iter():
         f.write(line + "\n")
-    f.write(f"X-GENERATED-TIME:{datetime.now().isoformat()}\n")
+    f.write(f"X-GENERATED-TIME:{datetime.now(timezone.utc).isoformat()}\n")
 
 print("🔹 calendar.ics atualizado!")

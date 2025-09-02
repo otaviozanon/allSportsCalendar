@@ -1,9 +1,12 @@
-name: Teste calendário esportes
+name: Atualizar calendário esportes (teste)
 
 on:
-  workflow_dispatch:   # Permite execução manual
   schedule:
-    - cron: '0 0 * * *'   # Só como exemplo, pode comentar se quiser rodar manualmente
+    - cron: '0 0,12 * * *'  # Todos os dias às 00h00 e 12h00 UTC
+  workflow_dispatch:  # Permite execução manual
+
+permissions:
+  contents: write  # Permite commit e push do calendar.ics
 
 jobs:
   build:
@@ -14,9 +17,10 @@ jobs:
       - name: Checkout código
         uses: actions/checkout@v4
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
-      # 🔹 Configurar Python
+      # 🔹 Configurar Python 3.11
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -26,7 +30,7 @@ jobs:
       - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          pip install requests ics pillow pytesseract
+          pip install requests ics pytz pillow pytesseract
 
       # 🔹 Instalar Tesseract OCR no Ubuntu
       - name: Instalar Tesseract
@@ -34,11 +38,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tesseract-ocr tesseract-ocr-por
 
-      # 🔹 Executar script de teste
-      - name: Executar generate_ics.py
+      # 🔹 Executar script Python
+      - name: Executar script generate_ics.py
         run: python generate_ics.py
 
-      # 🔹 Commit e push do calendar.ics (opcional, só se quiser salvar)
+      # 🔹 Commit e push do calendar.ics
       - name: Commit e push calendar.ics
         run: |
           git config --global user.name "github-actions"

@@ -1,12 +1,13 @@
 name: Atualizar calendário esportes
 
+# Executa diariamente às 00h00 e 12h00 UTC, ou manualmente
 on:
   schedule:
-    - cron: '0 0,12 * * *'  # Todos os dias às 00h00 e 12h00 UTC
-  workflow_dispatch:  # Permite execução manual
+    - cron: '0 0,12 * * *'
+  workflow_dispatch:
 
 permissions:
-  contents: write  # Para poder commitar o calendar.ics
+  contents: write  # Para poder commitar calendar.ics
   id-token: write
 
 jobs:
